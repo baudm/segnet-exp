@@ -133,7 +133,7 @@ def main():
     encoder, decoder, vae = create_models()
     datagen = loader()
 
-    ck = ModelCheckpoint('encoder.{epoch:03d}.h5', save_weights_only=True)
+    ck = ModelCheckpoint('encoder.{epoch:02d}.h5', save_weights_only=True)
 
     vae.compile('nadam', 'binary_crossentropy', ['acc'])
 

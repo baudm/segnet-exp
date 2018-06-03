@@ -1,3 +1,7 @@
+import glob
+from multiprocessing.pool import ThreadPool
+
+from PIL import Image
 from keras import models, Input, Model
 from keras.callbacks import ModelCheckpoint
 from keras.layers.core import Activation, Reshape, Permute
@@ -130,11 +134,62 @@ def create_model():
 
 from keras import backend as K
 from keras.layers import concatenate
-from build_ae import create_models, loader
+from build_ae import create_models
+import numpy as np
+
+def _load_image(f):
+    im = Image.open(f) \
+              .crop((0, 20, 178, 198)) \
+              .resize((64, 64), Image.BICUBIC)
+    return np.asarray(im)
+
+
+def loader(encoder_train=True, batch_size=64, normalize=True):
+    ball_img = Image.open('ball.png', 'r')
+    files = glob.glob('/home/darwin/vaegan-celebs-keras/img_align_celeba_png/*.png')
+    with ThreadPool(1) as p:
+        while True:
+            np.random.shuffle(files)
+
+            for s in range(0, len(files), batch_size):
+                e = s + batch_size
+                batch_names = files[s:e]
+                batch_images = p.map(_load_image, batch_names)
+                batch_images = np.stack(batch_images)
+
+                if normalize:
+                    batch_images = batch_images / 255.
+                    # To be sure
+                    #batch_images = np.clip(batch_images, -1., 1.)
+
+                bs = len(batch_images)
+                ones = np.zeros((bs, 64, 64, 1))
+                images = np.concatenate([batch_images, ones], -1)
+                #images = np.random.uniform(-1., 1., size=(batch_size, 64, 64, 4))
+
+                # Clear mask
+                #images[:, :, :, -1] = -1.
+
+
+                for i in range(len(images)):
+                    s = np.random.randint(24, 48)
+                    img = np.asarray(ball_img.resize((s, s), Image.BICUBIC)) / 255.
+                    x = np.random.randint(0, 64 - s)
+                    y = np.random.randint(0, 64 - s)
+                    # images[i, :, :, :3] = batch_images[i]
+                    images[i, y:y+s, x:x+s, :] = img
+
+                mask = (np.expand_dims(images[:, :, :, -1], -1) )#+ 1.) / 2.
+
+                if encoder_train:
+                    yield images, mask
+                else:
+                    yield images[:, :, :, :3], None
+
 
 def main():
     encoder, _, vae = create_models()
-    vae.load_weights('encoder.008.h5')
+    encoder.load_weights('encoder-trained.h5')
     encoder.trainable = False
 
     seg = create_model()
@@ -152,14 +207,14 @@ def main():
     model.add_loss(kl_loss)
 
     model.compile('nadam')
-    model.load_weights('segnet.010.h5')
+    # model.load_weights('segnet.010.h5')
 
     model.summary()
 
-    ck = ModelCheckpoint('segnet.{epoch:03d}.h5', save_weights_only=True)
+    ck = ModelCheckpoint('segnet.{epoch:02d}.h5', save_weights_only=True)
 
     data = loader(False)
-    # model.fit_generator(data, 100, 10, callbacks=[ck])
+    model.fit_generator(data, 1000, 100, callbacks=[ck])
 
 
     # Test code
